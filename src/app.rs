@@ -4,6 +4,7 @@ use std::process::Command;
 use std::fs;
 
 use anyhow::Result;
+use rand::RngExt;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -124,6 +125,16 @@ impl App {
         self.current_piece = Some(piece);
         self.detail_browse_idx = Some(filtered_idx);
         self.status.clear();
+    }
+
+    fn navigate_random(&mut self) {
+        let len = self.browse.filtered.len();
+        if len == 0 {
+            return;
+        }
+        let idx = rand::rng().random_range(0..len);
+        self.navigate_detail(idx);
+        self.view = View::Detail;
     }
 
     fn add_gac_url(&mut self, w: &mut impl Write) -> io::Result<()> {
@@ -299,7 +310,7 @@ impl App {
 
         write!(
             w,
-            "\r\n  {}[f]ilter  [Enter] detail  [/] search  [j/k] select  [n/p] page  [a]dd GAC  [q]uit{}\r\n",
+            "\r\n  {}[f]ilter  [Enter] detail  [r]andom  [/] search  [j/k] select  [n/p] page  [a]dd GAC  [q]uit{}\r\n",
             DIM, RST
         )?;
         w.flush()
@@ -461,7 +472,7 @@ impl App {
 
         write!(
             w,
-            "\r\n  {}[j/k] prev/next  [d]ownload  [u]pscale  [o]pen  [a]dd GAC  [c]onfig  [Esc] back  [q]uit{}\r\n",
+            "\r\n  {}[j/k] prev/next  [r]andom  [d]ownload  [u]pscale  [o]pen  [a]dd GAC  [c]onfig  [Esc] back  [q]uit{}\r\n",
             DIM, RST
         )?;
         w.flush()
@@ -609,6 +620,10 @@ impl App {
                                 }
                             }
 
+                            KeyCode::Char('r') => {
+                                self.navigate_random();
+                            }
+
                             KeyCode::Char('a') => {
                                 self.add_gac_url(&mut stdout)?;
                             }
@@ -736,6 +751,10 @@ impl App {
                                         self.status = "Download first (press d)".into();
                                     }
                                 }
+                            }
+
+                            KeyCode::Char('r') => {
+                                self.navigate_random();
                             }
 
                             KeyCode::Char('a') => {

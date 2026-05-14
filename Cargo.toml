@@ -11,6 +11,7 @@ crossterm = "0.28"
 dezoomify-rs = "2"
 dirs = "6"
 image = "0.25"
+rand = "0.10.1"
 reqwest = { version = "0.12", features = ["json", "cookies"] }
 scraper = "0.22"
 serde = { version = "1", features = ["derive"] }
