@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 
 use anyhow::Result;
-use image::GenericImageView;
+use image::ImageReader;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::CatalogEntry;
@@ -191,23 +191,63 @@ pub async fn download_piece(
     };
 
     if downloaded && file_is_valid(&output) {
-        match image::open(&output) {
-            Ok(img) => {
-                let (w, h) = img.dimensions();
-                let preview = cache_dir().join(format!("{}_preview.jpg", name));
-                let _ = img.thumbnail(2000, 2000).save(&preview);
-                piece.local_path = Some(output.to_string_lossy().into_owned());
-                piece.resolution = Some([w, h]);
-                let mut msg = format!("Downloaded: {}\u{00d7}{}", w, h);
-                if piece.needs_upscale() {
-                    msg.push_str("  [below 5K \u{2014} press u to upscale]");
-                }
-                Ok(msg)
+        piece.local_path = Some(output.to_string_lossy().into_owned());
+
+        let dims = ImageReader::open(&output)
+            .ok()
+            .and_then(|r| r.into_dimensions().ok());
+
+        let (w, h) = match dims {
+            Some(d) => d,
+            None => {
+                return Ok("Downloaded (could not read dimensions)".into());
             }
-            Err(e) => Ok(format!("File saved but unreadable: {}", e)),
+        };
+        piece.resolution = Some([w, h]);
+
+        // Only decode for thumbnail if the image won't blow up memory
+        // (~4 bytes/pixel, cap at ~512 MB decoded)
+        let pixel_count = w as u64 * h as u64;
+        let preview = cache_dir().join(format!("{}_preview.jpg", name));
+        if pixel_count < 128_000_000 {
+            if let Ok(img) = image::open(&output) {
+                let _ = img.thumbnail(2000, 2000).save(&preview);
+            }
+        } else {
+            // For very large images, create a thumbnail with reduced decode limits
+            let _ = generate_large_thumbnail(&output, &preview);
         }
+
+        let mut msg = format!("Downloaded: {}\u{00d7}{}", w, h);
+        if piece.needs_upscale() {
+            msg.push_str("  [below 5K \u{2014} press u to upscale]");
+        }
+        Ok(msg)
     } else {
         Ok("Download failed".into())
+    }
+}
+
+fn generate_large_thumbnail(input: &Path, output: &Path) -> bool {
+    // Use sips (macOS) or ImageMagick convert to thumbnail without loading into process memory
+    if cfg!(target_os = "macos") {
+        let _ = fs::copy(input, output);
+        std::process::Command::new("sips")
+            .args(["-Z", "2000"])
+            .arg(output)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .map(|r| r.status.success() && output.exists())
+            .unwrap_or(false)
+    } else {
+        std::process::Command::new("convert")
+            .arg(input)
+            .args(["-thumbnail", "2000x2000>"])
+            .arg(output)
+            .output()
+            .map(|r| r.status.success() && output.exists())
+            .unwrap_or(false)
     }
 }
 
