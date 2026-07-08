@@ -1,10 +1,9 @@
+use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::Command;
-use std::fs;
 
 use anyhow::Result;
-use rand::RngExt;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -14,6 +13,7 @@ use crossterm::{
     },
 };
 use image::GenericImageView;
+use rand::RngExt;
 
 use crate::catalog::{CatalogEntry, Medium, MuseumSource};
 use crate::config::{cache_dir, save_config, FIVE_K};
@@ -243,11 +243,7 @@ impl App {
         write!(w, "  {}{}{}\r\n", DIM, rule, RST)?;
 
         if !self.browse.query.is_empty() {
-            write!(
-                w,
-                "  {}search: \"{}\"{}\r\n",
-                DIM, self.browse.query, RST
-            )?;
+            write!(w, "  {}search: \"{}\"{}\r\n", DIM, self.browse.query, RST)?;
         }
 
         if total == 0 {
@@ -330,6 +326,12 @@ impl App {
             ("1", "All", MuseumSource::All),
             ("2", "Art Inst. Chicago", MuseumSource::AIC),
             ("3", "Cleveland Museum", MuseumSource::Cleveland),
+            ("4", "The Met", MuseumSource::Met),
+            ("5", "National Gallery", MuseumSource::NationalGallery),
+            ("6", "Smithsonian", MuseumSource::Smithsonian),
+            ("7", "Palace Museum", MuseumSource::PalaceMuseum),
+            ("8", "Shanghai Museum", MuseumSource::ShanghaiMuseum),
+            ("9", "Natl. Art Museum China", MuseumSource::Namoc),
         ];
         let med_items: &[(&str, &str, Medium)] = &[
             ("a", "All", Medium::All),
@@ -341,17 +343,9 @@ impl App {
             ("g", "Pastel", Medium::Pastel),
         ];
 
-        write!(
-            w,
-            "  {}{:<24}{}{}\r\n",
-            BOLD, "Source", "Medium", RST
-        )?;
+        write!(w, "  {}{:<32}{}{}\r\n", BOLD, "Source", "Medium", RST)?;
         let rule = "\u{2500}".repeat(20);
-        write!(
-            w,
-            "  {}{:<24}{}{}\r\n",
-            DIM, rule, rule, RST
-        )?;
+        write!(w, "  {}{:<32}{}{}\r\n", DIM, rule, rule, RST)?;
 
         let max_rows = src_items.len().max(med_items.len());
         for i in 0..max_rows {
@@ -364,9 +358,9 @@ impl App {
                     ""
                 };
                 let rst = if marker.is_empty() { "" } else { RST };
-                write!(w, "{}[{}] {:<20}{}", marker, key, label, rst)?;
+                write!(w, "{}[{}] {:<28}{}", marker, key, label, rst)?;
             } else {
-                write!(w, "{:24}", "")?;
+                write!(w, "{:32}", "")?;
             }
             if i < med_items.len() {
                 let (key, label, variant) = med_items[i];
@@ -402,7 +396,13 @@ impl App {
         let rule_len = 60.min(cols as usize - 4);
         let rule = "\u{2500}".repeat(rule_len);
         let pos = match self.detail_browse_idx {
-            Some(idx) => format!("  {}{}/{}{}", CYAN, idx + 1, self.browse.filtered.len(), RST),
+            Some(idx) => format!(
+                "  {}{}/{}{}",
+                CYAN,
+                idx + 1,
+                self.browse.filtered.len(),
+                RST
+            ),
             None => String::new(),
         };
         write!(
@@ -444,10 +444,7 @@ impl App {
                 } else {
                     (YELLOW, "< 5K")
                 };
-                write!(
-                    w,
-                    "  {}{}\u{00d7}{} ({}){}", color, width, height, tag, RST
-                )?;
+                write!(w, "  {}{}\u{00d7}{} ({}){}", color, width, height, tag, RST)?;
                 if piece.upscaled {
                     write!(w, " {}upscaled{}", CYAN, RST)?;
                 }
@@ -505,9 +502,7 @@ impl App {
                     match self.view {
                         View::Browse => match key.code {
                             KeyCode::Char('q') => break,
-                            KeyCode::Char('c')
-                                if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                            {
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                                 break
                             }
                             KeyCode::Esc => break,
@@ -530,12 +525,8 @@ impl App {
                             }
                             KeyCode::Char('n') | KeyCode::Right => {
                                 let ps = self.page_size();
-                                let max_page = self
-                                    .browse
-                                    .filtered
-                                    .len()
-                                    .saturating_sub(1)
-                                    / ps.max(1);
+                                let max_page =
+                                    self.browse.filtered.len().saturating_sub(1) / ps.max(1);
                                 if self.browse.page < max_page {
                                     self.browse.page += 1;
                                     self.browse.selected = 0;
@@ -548,60 +539,82 @@ impl App {
                                 }
                             }
 
-                            KeyCode::Char('f') => {
-                                loop {
-                                    self.draw_filter_menu(&mut stdout)?;
-                                    if let Ok(Event::Key(fk)) = event::read() {
-                                        if fk.kind != KeyEventKind::Press {
-                                            continue;
+                            KeyCode::Char('f') => loop {
+                                self.draw_filter_menu(&mut stdout)?;
+                                if let Ok(Event::Key(fk)) = event::read() {
+                                    if fk.kind != KeyEventKind::Press {
+                                        continue;
+                                    }
+                                    match fk.code {
+                                        KeyCode::Char('1') => {
+                                            self.browse.source = MuseumSource::All;
+                                            self.refilter();
                                         }
-                                        match fk.code {
-                                            KeyCode::Char('1') => {
-                                                self.browse.source = MuseumSource::All;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('2') => {
-                                                self.browse.source = MuseumSource::AIC;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('3') => {
-                                                self.browse.source = MuseumSource::Cleveland;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('a') => {
-                                                self.browse.filter = Medium::All;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('b') => {
-                                                self.browse.filter = Medium::Oil;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('c') => {
-                                                self.browse.filter = Medium::Watercolor;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('d') => {
-                                                self.browse.filter = Medium::Tempera;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('e') => {
-                                                self.browse.filter = Medium::Ink;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('f') => {
-                                                self.browse.filter = Medium::Chalk;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Char('g') => {
-                                                self.browse.filter = Medium::Pastel;
-                                                self.refilter();
-                                            }
-                                            KeyCode::Esc | KeyCode::Enter => break,
-                                            _ => break,
+                                        KeyCode::Char('2') => {
+                                            self.browse.source = MuseumSource::AIC;
+                                            self.refilter();
                                         }
+                                        KeyCode::Char('3') => {
+                                            self.browse.source = MuseumSource::Cleveland;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('4') => {
+                                            self.browse.source = MuseumSource::Met;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('5') => {
+                                            self.browse.source = MuseumSource::NationalGallery;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('6') => {
+                                            self.browse.source = MuseumSource::Smithsonian;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('7') => {
+                                            self.browse.source = MuseumSource::PalaceMuseum;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('8') => {
+                                            self.browse.source = MuseumSource::ShanghaiMuseum;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('9') => {
+                                            self.browse.source = MuseumSource::Namoc;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('a') => {
+                                            self.browse.filter = Medium::All;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('b') => {
+                                            self.browse.filter = Medium::Oil;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('c') => {
+                                            self.browse.filter = Medium::Watercolor;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('d') => {
+                                            self.browse.filter = Medium::Tempera;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('e') => {
+                                            self.browse.filter = Medium::Ink;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('f') => {
+                                            self.browse.filter = Medium::Chalk;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Char('g') => {
+                                            self.browse.filter = Medium::Pastel;
+                                            self.refilter();
+                                        }
+                                        KeyCode::Esc | KeyCode::Enter => break,
+                                        _ => break,
                                     }
                                 }
-                            }
+                            },
 
                             KeyCode::Char('/') => {
                                 let q = self.read_line_input(&mut stdout, "Search: ");
@@ -633,9 +646,7 @@ impl App {
 
                         View::Detail => match key.code {
                             KeyCode::Char('q') => break,
-                            KeyCode::Char('c')
-                                if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                            {
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                                 break
                             }
                             KeyCode::Esc => {
@@ -670,8 +681,7 @@ impl App {
                                     match result {
                                         Ok(msg) => {
                                             self.gallery.get_or_insert(piece.clone());
-                                            if let Some(idx) =
-                                                self.gallery.find_by_url(&piece.url)
+                                            if let Some(idx) = self.gallery.find_by_url(&piece.url)
                                             {
                                                 self.gallery.pieces[idx] = piece.clone();
                                                 self.gallery.save();
@@ -701,26 +711,20 @@ impl App {
                                     } else if !esrgan_installed() {
                                         if let Some('y') = self.read_single_key(
                                             &mut stdout,
-                                            "Real-ESRGAN not installed. Download (~8 MB)? [y/n] ",
+                                            "Real-ESRGAN not installed. Download (~50 MB)? [y/n] ",
                                         ) {
-                                            self.status =
-                                                "Downloading Real-ESRGAN\u{2026}".into();
+                                            self.status = "Downloading Real-ESRGAN\u{2026}".into();
                                             self.draw(&mut stdout)?;
                                             let client = self.client.clone();
-                                            match self
-                                                .rt
-                                                .block_on(install_esrgan(&client))
-                                            {
+                                            match self.rt.block_on(install_esrgan(&client)) {
                                                 Ok(()) => {
                                                     self.status =
-                                                        "Installed! Upscaling\u{2026}"
-                                                            .into();
+                                                        "Installed! Upscaling\u{2026}".into();
                                                     self.draw(&mut stdout)?;
                                                     self.do_upscale();
                                                 }
                                                 Err(e) => {
-                                                    self.status =
-                                                        format!("Install failed: {}", e);
+                                                    self.status = format!("Install failed: {}", e);
                                                 }
                                             }
                                         } else {
@@ -728,8 +732,7 @@ impl App {
                                         }
                                     } else {
                                         self.status =
-                                            "Upscaling 2\u{00d7} with Real-ESRGAN\u{2026}"
-                                                .into();
+                                            "Upscaling 2\u{00d7} with Real-ESRGAN\u{2026}".into();
                                         self.draw(&mut stdout)?;
                                         self.do_upscale();
                                     }
@@ -820,7 +823,7 @@ impl App {
         if !esrgan_installed() {
             if let Some('y') = self.read_single_key(
                 w,
-                "Below 5K \u{2014} upscale? Requires Real-ESRGAN (~8 MB download). [y/n] ",
+                "Below 5K \u{2014} upscale? Requires Real-ESRGAN (~50 MB download). [y/n] ",
             ) {
                 self.status = "Downloading Real-ESRGAN\u{2026}".into();
                 self.draw(w)?;
@@ -852,7 +855,8 @@ impl App {
             let ext = input.extension().unwrap_or_default().to_string_lossy();
             let output = input.with_file_name(format!("{}_2x.{}", stem, ext));
 
-            if upscale_image(&input, &output) {
+            let report = upscale_image(&input, &output);
+            if report.success {
                 match image::open(&output) {
                     Ok(img) => {
                         let (w, h) = img.dimensions();
@@ -872,8 +876,14 @@ impl App {
                     }
                     Err(_) => self.status = "Upscaled file unreadable".into(),
                 }
+            } else if let Some(log_path) = &report.log_path {
+                self.status = format!(
+                    "Upscale failed: {} (debug: {})",
+                    report.failure_summary(),
+                    log_path.display()
+                );
             } else {
-                self.status = "Upscale failed".into();
+                self.status = format!("Upscale failed: {}", report.failure_summary());
             }
         }
     }

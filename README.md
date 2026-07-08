@@ -2,7 +2,7 @@
 
 Browse museum art from the terminal. Inline image previews via the Kitty graphics protocol (works in **Ghostty**, Kitty, WezTerm).
 
-Sources paintings and drawings from the [Art Institute of Chicago](https://www.artic.edu/) and the [Cleveland Museum of Art](https://www.clevelandart.org/) open-access APIs. Filter by museum or technique (oil, watercolor, tempera, ink, chalk, pastel). Download full-resolution images and auto-upscale to 5K+ with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN).
+Sources paintings, drawings, and open-access collection images from the [Art Institute of Chicago](https://www.artic.edu/), the [Cleveland Museum of Art](https://www.clevelandart.org/), [The Met](https://www.metmuseum.org/), the National Gallery of Art, Smithsonian American Art Museum, the Palace Museum, Shanghai Museum, and the National Art Museum of China. Filter by museum or technique (oil, watercolor, tempera, ink, chalk, pastel). Download full-resolution images and auto-upscale to 5K+ with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN).
 
 Also supports [Google Arts & Culture](https://artsandculture.google.com/) URLs — extracts deep-zoom tiles via [dezoomify-rs](https://github.com/lovasoa/dezoomify-rs).
 
@@ -31,7 +31,7 @@ artfetch
 artfetch "https://artsandculture.google.com/asset/blossoming-chestnut-trees/2gE-tfXmAz99tA"
 ```
 
-On first launch, artfetch fetches ~1000+ paintings and drawings from both museum APIs and caches them locally (refreshes weekly).
+On first launch, artfetch fetches museum catalog data and caches it locally (refreshes weekly).
 
 ## Keybindings
 
@@ -59,6 +59,9 @@ On first launch, artfetch fetches ~1000+ paintings and drawings from both museum
 | `a` | Add a Google Arts & Culture URL |
 | `Esc` | Back to browse |
 
+Set `ARTFETCH_UPSCALE_DEBUG=1` before launching to write Real-ESRGAN command output to
+`~/.cache/artfetch/upscale-debug.log` when an upscale fails.
+
 ### Filter menu
 
 Press `f` from the browse view. Single keypress to select:
@@ -69,10 +72,12 @@ Press `f` from the browse view. Single keypress to select:
   [1] All                 [a] All
   [2] Art Inst. Chicago   [b] Oil
   [3] Cleveland Museum    [c] Watercolor
-                          [d] Tempera
-                          [e] Ink
-                          [f] Chalk / Charcoal
-                          [g] Pastel
+  [4] The Met             [d] Tempera
+  [5] National Gallery    [e] Ink
+  [6] Smithsonian         [f] Chalk / Charcoal
+  [7] Palace Museum       [g] Pastel
+  [8] Shanghai Museum
+  [9] Natl. Art Museum China
 ```
 
 Active filters shown in the browse header as `[Source / Medium]`.
@@ -83,7 +88,7 @@ Active filters shown in the browse header as `[Source / Medium]`.
 src/
   main.rs       Entry point, CLI args
   config.rs     Paths, constants, user config
-  catalog.rs    CatalogEntry, AIC + Cleveland API clients, cache
+  catalog.rs    CatalogEntry, museum API clients, Wikidata/Commons loader, cache
   gallery.rs    Piece, Gallery, download, thumbnails
   app.rs        TUI views, event loop, drawing
   kitty.rs      Kitty graphics protocol, ANSI codes
@@ -98,6 +103,9 @@ src/
 | `~/.config/artfetch/config.json` | Download directory setting |
 | `~/.cache/artfetch/aic_catalog.json` | AIC catalog cache (7-day TTL) |
 | `~/.cache/artfetch/cleveland_catalog.json` | Cleveland catalog cache (7-day TTL) |
+| `~/.cache/artfetch/met_catalog.json` | The Met catalog cache (7-day TTL) |
+| `~/.cache/artfetch/wikidata_museums_v4_catalog.json` | National Gallery, Smithsonian, Palace Museum, and Shanghai Museum catalog cache (7-day TTL) |
+| `~/.cache/artfetch/namoc_commons_catalog.json` | National Art Museum of China Commons catalog cache (7-day TTL) |
 | `~/.cache/artfetch/*_thumb.jpg` | Thumbnail cache |
 | `~/Pictures/artfetch/` | Downloaded images (default) |
 | `~/.local/share/artfetch/realesrgan/` | Real-ESRGAN binary (if installed) |

@@ -1,6 +1,6 @@
+use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
-use std::fs;
 
 use base64::{engine::general_purpose, Engine as _};
 use crossterm::terminal;
