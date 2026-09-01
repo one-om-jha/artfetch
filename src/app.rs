@@ -17,7 +17,7 @@ use rand::RngExt;
 
 use crate::catalog::{CatalogEntry, Medium, MuseumSource};
 use crate::config::{cache_dir, save_config, FIVE_K};
-use crate::esrgan::{esrgan_installed, install_esrgan, upscale_image};
+use crate::esrgan::{esrgan_installed, install_esrgan, upscale_image, ESRGAN_NATIVE_SCALE};
 use crate::gac::fetch_gac_metadata;
 use crate::gallery::{cache_thumbnail, download_piece, safe_name, Gallery, Piece};
 use crate::kitty::*;
@@ -830,7 +830,7 @@ impl App {
                 let client = self.client.clone();
                 match self.rt.block_on(install_esrgan(&client)) {
                     Ok(()) => {
-                        self.status = "Upscaling 2\u{00d7}\u{2026}".into();
+                        self.status = "Upscaling to 5K\u{2026}".into();
                         self.draw(w)?;
                         self.do_upscale();
                     }
@@ -838,11 +838,19 @@ impl App {
                 }
             }
         } else {
-            self.status = "Auto-upscaling 2\u{00d7} (below 5K)\u{2026}".into();
+            self.status = "Auto-upscaling to 5K (below 5K)\u{2026}".into();
             self.draw(w)?;
             self.do_upscale();
         }
         Ok(())
+    }
+
+    /// Smallest factor that pushes `(w, h)` to 5K on either axis, floored at 2x
+    /// so an explicit upscale always gains something and capped at the model's
+    /// native scale, which is as far as one pass can take us.
+    fn upscale_factor(w: u32, h: u32) -> f64 {
+        let to_5k = (FIVE_K.0 as f64 / w as f64).min(FIVE_K.1 as f64 / h as f64);
+        to_5k.clamp(2.0, ESRGAN_NATIVE_SCALE as f64)
     }
 
     fn do_upscale(&mut self) {
@@ -853,16 +861,40 @@ impl App {
             let input = PathBuf::from(piece.local_path.as_ref().unwrap());
             let stem = input.file_stem().unwrap_or_default().to_string_lossy();
             let ext = input.extension().unwrap_or_default().to_string_lossy();
-            let output = input.with_file_name(format!("{}_2x.{}", stem, ext));
+            let output = input.with_file_name(format!("{}_upscaled.{}", stem, ext));
+            // Real-ESRGAN can only run at its native scale, so it writes here
+            // and we resample down to the 5K target.
+            let native = input.with_file_name(format!("{}_native.{}", stem, ext));
 
-            let report = upscale_image(&input, &output);
+            let report = upscale_image(&input, &native);
             if report.success {
-                match image::open(&output) {
+                match image::open(&native) {
                     Ok(img) => {
-                        let (w, h) = img.dimensions();
+                        let (nw, nh) = img.dimensions();
+                        let scale = ESRGAN_NATIVE_SCALE;
+                        let factor = Self::upscale_factor(nw / scale, nh / scale);
+                        let ratio = factor / scale as f64;
+
+                        let final_img = if ratio >= 0.999 {
+                            img
+                        } else {
+                            let tw = (nw as f64 * ratio).ceil() as u32;
+                            let th = (nh as f64 * ratio).ceil() as u32;
+                            img.resize_exact(tw, th, image::imageops::FilterType::Lanczos3)
+                        };
+                        let (w, h) = final_img.dimensions();
+
+                        if final_img.save(&output).is_err() {
+                            self.status = "Could not write upscaled image".into();
+                            let _ = fs::remove_file(&native);
+                            return;
+                        }
+                        let _ = fs::remove_file(&native);
+
                         let name = safe_name(piece);
                         let preview = cache_dir().join(format!("{}_preview.jpg", name));
-                        let _ = img.thumbnail(2000, 2000).save(&preview);
+                        let _ = final_img.thumbnail(2000, 2000).save(&preview);
+                        drop(final_img);
 
                         piece.local_path = Some(output.to_string_lossy().into_owned());
                         piece.resolution = Some([w, h]);
@@ -872,9 +904,13 @@ impl App {
                             self.gallery.pieces[idx] = piece.clone();
                             self.gallery.save();
                         }
-                        self.status = format!("Upscaled: {}\u{00d7}{}", w, h);
+                        self.status =
+                            format!("Upscaled {:.1}\u{00d7}: {}\u{00d7}{}", factor, w, h);
                     }
-                    Err(_) => self.status = "Upscaled file unreadable".into(),
+                    Err(_) => {
+                        let _ = fs::remove_file(&native);
+                        self.status = "Upscaled file unreadable".into();
+                    }
                 }
             } else if let Some(log_path) = &report.log_path {
                 self.status = format!(
@@ -885,6 +921,88 @@ impl App {
             } else {
                 self.status = format!("Upscale failed: {}", report.failure_summary());
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Mirrors the target dims `do_upscale` computes from a native-scale render.
+    fn target(w: u32, h: u32) -> (u32, u32) {
+        let factor = App::upscale_factor(w, h);
+        let (nw, nh) = (w * ESRGAN_NATIVE_SCALE, h * ESRGAN_NATIVE_SCALE);
+        let ratio = factor / ESRGAN_NATIVE_SCALE as f64;
+        if ratio >= 0.999 {
+            (nw, nh)
+        } else {
+            (
+                (nw as f64 * ratio).ceil() as u32,
+                (nh as f64 * ratio).ceil() as u32,
+            )
+        }
+    }
+
+    fn at_5k(w: u32, h: u32) -> bool {
+        w >= FIVE_K.0 || h >= FIVE_K.1
+    }
+
+    #[test]
+    fn factor_never_exceeds_native_scale_or_drops_below_2x() {
+        for w in [80u32, 500, 1000, 2000, 3632, 5119] {
+            for h in [60u32, 400, 800, 1500, 2421, 2879] {
+                let f = App::upscale_factor(w, h);
+                assert!(
+                    (2.0..=ESRGAN_NATIVE_SCALE as f64).contains(&f),
+                    "{}x{} produced factor {}",
+                    w,
+                    h,
+                    f
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reaches_5k_whenever_native_scale_allows_it() {
+        for (w, h) in [(3632u32, 2421u32), (2000, 1500), (1000, 800), (1280, 720)] {
+            let (tw, th) = target(w, h);
+            assert!(
+                at_5k(tw, th),
+                "{}x{} only reached {}x{}",
+                w,
+                h,
+                tw,
+                th
+            );
+        }
+    }
+
+    #[test]
+    fn does_not_overshoot_when_a_smaller_factor_reaches_5k() {
+        // 3632x2421 hits 5K at 1.41x, so it should land well under the 4x render.
+        let (tw, th) = target(3632, 2421);
+        assert_eq!((tw, th), (7264, 4842));
+    }
+
+    #[test]
+    fn small_inputs_use_the_full_native_render() {
+        // 500x400 cannot reach 5K in one pass, so keep every pixel ESRGAN made.
+        assert_eq!(target(500, 400), (2000, 1600));
+    }
+
+    #[test]
+    fn preserves_aspect_ratio_within_a_pixel() {
+        for (w, h) in [(3632u32, 2421u32), (2000, 1500), (1000, 800), (1234, 567)] {
+            let (tw, th) = target(w, h);
+            let src = w as f64 / h as f64;
+            let dst = tw as f64 / th as f64;
+            assert!(
+                (src - dst).abs() < 0.001,
+                "{}x{} -> {}x{} skewed aspect {} vs {}",
+                w, h, tw, th, src, dst
+            );
         }
     }
 }

@@ -53,7 +53,7 @@ On first launch, artfetch fetches museum catalog data and caches it locally (ref
 |-----|--------|
 | `j` / `k` | Previous / next artwork |
 | `d` | Download full-resolution image |
-| `u` | Upscale 2× with Real-ESRGAN |
+| `u` | Upscale to 5K with Real-ESRGAN |
 | `o` | Open in system image viewer |
 | `c` | Configure download directory |
 | `a` | Add a Google Arts & Culture URL |
