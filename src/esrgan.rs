@@ -11,6 +11,12 @@ const ESRGAN_MACOS_URL: &str = "https://github.com/xinntao/Real-ESRGAN/releases/
 const ESRGAN_LINUX_URL: &str = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip";
 const ESRGAN_MODEL: &str = "realesrgan-x4plus";
 
+/// Scale factor baked into `ESRGAN_MODEL`. `realesrgan-x4plus` is 4x-only: the
+/// `-s` flag does not select a model, it tells ncnn where to place each output
+/// tile. Passing anything but 4 here stitches 4x tiles onto the wrong stride
+/// and scrambles the image. Only `realesr-animevideov3` accepts other values.
+pub const ESRGAN_NATIVE_SCALE: u32 = 4;
+
 fn esrgan_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
@@ -208,7 +214,9 @@ pub fn upscale_image(input: &Path, output: &Path) -> UpscaleReport {
         .arg(input)
         .args(["-o"])
         .arg(output)
-        .args(["-s", "2", "-n", ESRGAN_MODEL]);
+        .arg("-s")
+        .arg(ESRGAN_NATIVE_SCALE.to_string())
+        .args(["-n", ESRGAN_MODEL]);
 
     if models.is_dir() {
         command.args(["-m"]).arg(&models);
