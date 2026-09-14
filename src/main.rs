@@ -19,6 +19,21 @@ use gac::fetch_gac_metadata;
 use gallery::{cache_thumbnail, Gallery, Piece};
 
 fn main() -> Result<()> {
+    // Handle informational flags before network access or terminal setup.
+    for arg in env::args().skip(1) {
+        match arg.as_str() {
+            "--version" | "-V" => {
+                println!("artfetch {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "--help" | "-h" => {
+                println!("Usage: artfetch [ARTWORK_URL ...]\n\nBrowse museum art in a terminal with Kitty graphics support.\n\n  -h, --help     Show this help\n  -V, --version  Show the version");
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
     let rt = Runtime::new().context("Failed to create async runtime")?;
     let client = reqwest::Client::builder()
         .user_agent(UA)

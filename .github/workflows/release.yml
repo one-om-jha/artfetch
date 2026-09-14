@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(cargo +stable metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          test "$TAG" = "v$VERSION"
+          grep -F "tag: \"$TAG\"" Formula/artfetch.rb
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: Test
+        run: cargo +stable test --locked --target ${{ matrix.target }}
+      - name: Build
+        run: cargo +stable build --locked --release --target ${{ matrix.target }}
+      - name: Smoke test
+        run: target/${{ matrix.target }}/release/artfetch --version
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p dist
+          cp "target/$TARGET/release/artfetch" dist/
+          cp README.md dist/
+          tar -czf "artfetch-$TARGET.tar.gz" -C dist artfetch README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artfetch-${{ matrix.target }}
+          path: artfetch-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artfetch-*
+          merge-multiple: true
+          path: dist
+      - name: Publish release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          sha256sum artfetch-*.tar.gz > SHA256SUMS
+          # Stage all assets before publishing. A rerun can resume a failed draft.
+          if gh release view "$TAG" --json isDraft > release.json; then
+            python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Release is already published; use a new version"'
+          else
+            gh release create "$TAG" --verify-tag --draft --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" artfetch-*.tar.gz SHA256SUMS --clobber
+          if [[ "$TAG" == *-* ]]; then
+            gh release edit "$TAG" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --draft=false --latest
+          fi

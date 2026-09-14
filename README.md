@@ -6,9 +6,31 @@ Sources paintings, drawings, and open-access collection images from the [Art Ins
 
 Also supports [Google Arts & Culture](https://artsandculture.google.com/) URLs — extracts deep-zoom tiles via [dezoomify-rs](https://github.com/lovasoa/dezoomify-rs).
 
-Single static Rust binary. No runtime dependencies. Real-ESRGAN downloaded on demand from within the TUI.
+Single Rust executable. Linux release binaries require glibc 2.35+ and OpenSSL 3. Real-ESRGAN downloaded on demand from within the TUI.
 
 ## Install
+
+### Homebrew (macOS and Linux)
+
+After the first tagged release is published:
+
+```bash
+brew tap one-om-jha/artfetch https://github.com/one-om-jha/artfetch
+brew install one-om-jha/artfetch/artfetch
+```
+
+This formula builds from source. Homebrew installs the build dependencies.
+Use `brew upgrade` to install a newer formula version.
+
+### Release binaries
+
+Download the archive for your OS and CPU from
+[GitHub Releases](https://github.com/one-om-jha/artfetch/releases).
+Builds cover macOS (Apple Silicon and Intel, macOS 15+) and Linux (ARM64 and x86_64,
+glibc 2.35+ and OpenSSL 3). Extract it and put `artfetch` on your `PATH`.
+`SHA256SUMS` contains checksums for all archives.
+
+### From source
 
 ```bash
 cargo install --path .
@@ -109,3 +131,24 @@ src/
 | `~/.cache/artfetch/*_thumb.jpg` | Thumbnail cache |
 | `~/Pictures/artfetch/` | Downloaded images (default) |
 | `~/.local/share/artfetch/realesrgan/` | Real-ESRGAN binary (if installed) |
+
+## Releasing
+
+1. Set the new version in `Cargo.toml`, then run `cargo check` to update `Cargo.lock`.
+2. Set the matching `vX.Y.Z` tag in `Formula/artfetch.rb`.
+3. Commit and push these changes to `main`.
+4. Create and push the tag:
+
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+The Release workflow checks the version, tests and builds all four targets, then
+publishes the archives and checksums as a GitHub Release. It uses the built-in
+GitHub token; no extra secrets are needed. Published releases are not overwritten.
+Use a new version for fixes. Use stable version tags for Homebrew releases.
+
+To test builds without publishing, run the Release workflow manually from Actions.
+Homebrew reads the formula from this repository's default branch. Keep its tag
+in sync with each stable release so `brew upgrade` sees the new version.
